@@ -1,11 +1,37 @@
-from numpy.random import default_rng
 from dataclasses import dataclass
+from numpy.random import default_rng
+from pandas import read_csv
 
-RANK_SCORES = {}
+BASIC_STRATEGY_CSV_PATH = "BasicStrategy.csv"
+
+BASIC_STRATEGY_DATAFRAME = read_csv(BASIC_STRATEGY_CSV_PATH, sep=";", header=None)
 
 
 def basic_strategy(player_hand: list[int], dealer_card: int, is_pair: bool):
-    pass
+    """Returns an action (H=Hit, S=Stand, P=Split, Dh/Ds=Double Down)"""
+
+    if dealer_card == 0:
+        dealer_index = 9
+    elif dealer_card > 9:
+        dealer_index = 8
+    else:
+        dealer_index = dealer_card - 2
+
+    if is_pair:
+        if player_hand[0] == 0:
+            player_index = 36
+        elif player_hand[0] > 9:
+            player_index = 35
+        else:
+            player_index = player_hand[0] + 25  # Pair region offset
+    else:
+        score, is_soft = hand_score(player_hand)
+        if is_soft:
+            player_index = score + 5  # Soft score region offset
+        else:
+            player_index = score - 4
+
+    return BASIC_STRATEGY_DATAFRAME.iloc[player_index, dealer_index]
 
 
 def hand_score(hand: list[int]) -> tuple[int, bool]:
@@ -106,8 +132,6 @@ class BJSimulation:
                 card = self.deck.pop(0)
                 self.players[seat_index].hands[0].append(card)
 
-    def player_split(self) -> None: ...
-
     def player_turn(
         self, seat_index: int, hand: list[int] = None, is_split: bool = False
     ) -> bool:
@@ -142,7 +166,7 @@ class BJSimulation:
 
                 # Recalculate score
                 player_score, is_soft = hand_score(hand)
-            elif action == "D":
+            elif action in {"Dh", "Ds"}:
                 # Double down
                 hand.append(self.deck.pop(0))  # deal exactly one card
                 player_score, is_soft = hand_score(hand)

@@ -1,10 +1,11 @@
 # Repo specific
 *.txt
 *.json
-*.csv
 *.png
 *.jpg
 *.jpeg
+*.xlsx
+*.xls
 
 # VS Code
 .vscode/
