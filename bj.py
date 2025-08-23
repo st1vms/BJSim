@@ -8,20 +8,23 @@ BASIC_STRATEGY_DATAFRAME = read_csv(BASIC_STRATEGY_CSV_PATH, sep=";", header=Non
 
 
 def basic_strategy(player_hand: list[int], dealer_card: int, is_pair: bool) -> str:
-    """Returns an action (H=Hit, S=Stand, P=Split, Dh/Ds=Double Down)"""
+    """Returns an action (H=Hit, S=Stand, P=Split, Dh/Ds=Double Down)
+
+    Card values need to have an int map as so -> (A=0, 1=2, 2=3, ..., 10=J, 11=Q, 12=K)
+    """
 
     if dealer_card == 0:
-        dealer_index = 9
+        dealer_index = 9  # Pair of Aces action cell y
     elif dealer_card > 9:
-        dealer_index = 8
+        dealer_index = 8  # Pair of high cards action cell y
     else:
         dealer_index = dealer_card - 2
 
     if is_pair:
         if player_hand[0] == 0:
-            player_index = 36
+            player_index = 36  # Pair of Aces action cell x
         elif player_hand[0] > 9:
-            player_index = 35
+            player_index = 35  # Pair of high cards action cell x
         else:
             player_index = player_hand[0] + 25  # Pair region offset
     else:
@@ -29,13 +32,17 @@ def basic_strategy(player_hand: list[int], dealer_card: int, is_pair: bool) -> s
         if is_soft:
             player_index = score + 5  # Soft score region offset
         else:
-            player_index = score - 4
+            player_index = score - 4  # Hard score region offset
 
     return BASIC_STRATEGY_DATAFRAME.iloc[player_index, dealer_index]
 
 
 def hand_score(hand: list[int]) -> tuple[int, bool]:
-    """Return total score and if it soft or hard score"""
+    """Return total score and if it soft or hard score
+
+    Card values need to have an int map as so -> (A=0, 1=2, 2=3, ..., 10=J, 11=Q, 12=K)
+    """
+
     score = 0
     aces = 0
 
@@ -57,6 +64,7 @@ def hand_score(hand: list[int]) -> tuple[int, bool]:
 
 
 class BJSimulation:
+    """Blackjack Basic Strategy simulation"""
 
     @dataclass(frozen=True)
     class Configuration:
@@ -69,12 +77,12 @@ class BJSimulation:
     class RoundSeatStatistics:
         round_id: int = -1
         seat_index: int = -1
-        is_dealer: bool = False
+        is_dealer: int = 0
         prev_cards_left: int = 0
         prev_hilo_count: tuple[int, float] = (0, 0.0)
         # Count of the remaining cards by rank
         prev_rank_densities: dict[str, int] = {rank_id: 0 for rank_id in range(0, 13)}
-        outcome_win: bool = False
+        outcome_win: int = 0
 
     class Player:
         def __init__(self, seat_index: int):
@@ -100,14 +108,18 @@ class BJSimulation:
         self.players = [BJSimulation.Player(seat_index) for seat_index in range(0, 8)]
 
         self.prev_cards_left = len(self.deck)
-        self.prev_rank_densities = {rank_id: 0 for rank_id in range(0, 13)}
+        self.prev_rank_densities = {
+            card_id: 4 * self.config.N_DECKS for card_id in range(0, 13)
+        }
         self.prev_hilo_count = (0, 0.0)  # Running count, True Count
 
-        self.current_rank_densities = {rank_id: 0 for rank_id in range(0, 13)}
+        self.current_rank_densities = {
+            card_id: 4 * self.config.N_DECKS for card_id in range(0, 13)
+        }
         self.current_hilo_count = (0, 0.0)  # Running count, True Count
 
     def calculate_round_stats(self) -> None:
-        # Append previous round stats
+        """Calculate and register this round stats"""
 
         dealer_score, is_soft = hand_score(self.players[-1].hands[0])
         is_win = lambda hand: hand_score(hand)[0] > dealer_score
@@ -146,13 +158,16 @@ class BJSimulation:
             )
         )
 
-        # TODO Update previous-round stats
+        # Update previous-round stats
         self.prev_cards_left = len(self.deck)
         self.prev_hilo_count = (self.current_hilo_count[0], self.current_hilo_count[1])
+        self.prev_rank_densities = {
+            k: v for k, v in self.current_rank_densities.items()
+        }
 
-    def update_hi_lo_score(self, card: int):
+    def update_hi_lo_score(self, card: int) -> None:
         """
-        Calculate the Hi-Lo running and true count based on the card log.
+        Updates the Hi-Lo running and true count based on the card log.
         """
         running = self.current_hilo_count[0]  # Take current running count
 
@@ -168,31 +183,39 @@ class BJSimulation:
 
         self.current_hilo_count = (running, round(true_count, 2))
 
+    def update_rank_densities(self, card: int) -> None:
+        """Updates the count of remaining cards for each rank"""
+        self.current_rank_densities[card] -= 1
+
     def draw_card(self) -> int:
         """Draw a card from the deck"""
         card = self.deck.pop(0)
+
+        # Update current stats
         self.update_hi_lo_score(card)
+        self.update_rank_densities(card)
+
         return card
 
     def create_deck(self) -> list[int]:
-        # 0 = A, 1 = 2, ... 12 = K
+        """Creates a new deck with this card mapping -> 0 = A, 1 = 2, ... 12 = K"""
         return [i for i in range(0, 13) for _ in range(4)] * self.config.N_DECKS
 
     def shuffle_deck(self) -> None:
         self.rng.shuffle(self.deck)
 
     def reset_deck(self) -> None:
-        # Create and shuffle a new deck
+        """Create and shuffle a new deck"""
         self.deck = self.create_deck()
         self.shuffle_deck()
 
     def deck_needs_reset(self) -> bool:
-        # Check if we reached deck penetration
+        """Check if we reached deck penetration"""
         return len(self.deck) < (self.config.N_DECKS * 52) * self.config.DECK_PEN
 
     def deal_initial_cards(self) -> None:
+        """Reset player hands and deal the initial shoe"""
 
-        # Reset player hands
         for player in self.players:
             player.hands = [
                 [],
@@ -207,6 +230,7 @@ class BJSimulation:
     def player_turn(
         self, seat_index: int, hand: list[int] = None, is_split: bool = False
     ) -> None:
+        """Simulate player turn"""
 
         player = self.players[seat_index]
 
@@ -255,6 +279,7 @@ class BJSimulation:
                 return
 
     def dealer_turn(self) -> None:
+        """Simulate dealer turn"""
         dealer = self.players[-1]
         hand = dealer.hands[0]
         score, is_soft = hand_score(hand)
@@ -265,6 +290,7 @@ class BJSimulation:
             score, is_soft = hand_score(hand)
 
     def simulate_round(self) -> None:
+        """Simulate a blackjack round"""
         if self.deck_needs_reset():
             # Reached penetration, reset the deck
             self.reset_deck()
@@ -283,6 +309,8 @@ class BJSimulation:
         self.dealer_turn()
 
     def start(self) -> None:
+        """Run the simulation on the total amount of rounds configured,
+        calculating stats for each round"""
 
         # Simulate N rounds
         for sim_round in range(0, self.config.SIMULATION_ROUNDS):
