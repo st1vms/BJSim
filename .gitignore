@@ -9,6 +9,9 @@
 *.csv
 !BasicStrategy.csv
 
+*.py
+!bj.py
+
 # VS Code
 .vscode/
 !.vscode/settings.json

@@ -103,7 +103,7 @@ class BJSimulation:
 
         # Initialize RNG used to shuffle cards
         if self.config.USE_RANDOM_SEED:
-            self.rng = default_rng(randint(0, 2**128 - 1))
+            self.rng = default_rng(randint(0, 2**16 - 1))
         else:
             self.rng = default_rng(self.config.SHUFFLE_SEED)
 
@@ -222,7 +222,7 @@ class BJSimulation:
 
     def shuffle_deck(self) -> None:
         if self.config.USE_RANDOM_SEED:
-            self.rng = default_rng(randint(0, 2**128 - 1))
+            self.rng = default_rng(randint(0, 2**16 - 1))
         self.rng.shuffle(self.deck)
 
     def reset_game(self) -> None:
@@ -426,8 +426,6 @@ def round_stats_to_csv(stats: list[BJSimulation.RoundSeatStatistics]) -> None:
 
 
 if __name__ == "__main__":
-    config = BJSimulation.Configuration(SIMULATION_ROUNDS=25, SHUFFLE_SEED=41)
-
-    sim = BJSimulation(config=config)
+    sim = BJSimulation()
     sim.start()
     round_stats_to_csv(sim.round_stats)
