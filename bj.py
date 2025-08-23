@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
-from numpy.random import default_rng
-from pandas import read_csv
+from datetime import datetime
+from numpy.random import default_rng, randint
+from pandas import read_csv, DataFrame
 
 BASIC_STRATEGY_CSV_PATH = "BasicStrategy.csv"
 
@@ -72,6 +73,7 @@ class BJSimulation:
         N_DECKS: int = 8
         DECK_PEN: float = 0.5
         SHUFFLE_SEED: int = 42
+        USE_RANDOM_SEED: bool = False
 
     @dataclass
     class RoundSeatStatistics:
@@ -100,27 +102,13 @@ class BJSimulation:
         self.current_round_id: int = 0
 
         # Initialize RNG used to shuffle cards
-        self.rng = default_rng(self.config.SHUFFLE_SEED)
+        if self.config.USE_RANDOM_SEED:
+            self.rng = default_rng(randint(0, 2**128 - 1))
+        else:
+            self.rng = default_rng(self.config.SHUFFLE_SEED)
 
-        # Initialize deck of cards and shuffle it
-        self.reset_deck()
-
-        # Initialize players at their seat index, including dealer
-        # seat 7 is the dealer, seat 0 to 6 are players from right to left.
-        self.players = [BJSimulation.Player(seat_index) for seat_index in range(0, 8)]
-
-        self.prev_cards_drawed = 0
-        self.prev_cards_left = len(self.deck)
-        self.prev_deck_penetration = 0.0
-        self.prev_rank_densities = {
-            card_id: 4 * self.config.N_DECKS for card_id in range(0, 13)
-        }
-        self.prev_hilo_count = (0, 0.0)  # Running count, True Count
-
-        self.current_rank_densities = {
-            card_id: 4 * self.config.N_DECKS for card_id in range(0, 13)
-        }
-        self.current_hilo_count = (0, 0.0)  # Running count, True Count
+        # Initialize game in the initial state
+        self.reset_game()
 
     def calculate_round_stats(self) -> None:
         """Calculate and register this round stats"""
@@ -181,9 +169,9 @@ class BJSimulation:
         # Update previous-round stats
         self.prev_cards_drawed = (self.config.N_DECKS * 52) - len(self.deck)
         self.prev_cards_left = len(self.deck)
-        self.prev_deck_penetration = round(1 - self.prev_cards_left / (
-            self.config.N_DECKS * 52
-        ), 2)
+        self.prev_deck_penetration = round(
+            1 - self.prev_cards_left / (self.config.N_DECKS * 52), 2
+        )
 
         self.prev_hilo_count = (self.current_hilo_count[0], self.current_hilo_count[1])
         self.prev_rank_densities = {
@@ -233,12 +221,31 @@ class BJSimulation:
         return [i for i in range(0, 13) for _ in range(4)] * self.config.N_DECKS
 
     def shuffle_deck(self) -> None:
+        if self.config.USE_RANDOM_SEED:
+            self.rng = default_rng(randint(0, 2**128 - 1))
         self.rng.shuffle(self.deck)
 
-    def reset_deck(self) -> None:
+    def reset_game(self) -> None:
         """Create and shuffle a new deck"""
         self.deck = self.create_deck()
         self.shuffle_deck()
+
+        # Initialize players at their seat index, including dealer
+        # seat 7 is the dealer, seat 0 to 6 are players from right to left.
+        self.players = [BJSimulation.Player(seat_index) for seat_index in range(0, 8)]
+
+        self.prev_cards_drawed = 0
+        self.prev_cards_left = len(self.deck)
+        self.prev_deck_penetration = 0.0
+        self.prev_rank_densities = {
+            card_id: 4 * self.config.N_DECKS for card_id in range(0, 13)
+        }
+        self.prev_hilo_count = (0, 0.0)  # Running count, True Count
+
+        self.current_rank_densities = {
+            card_id: 4 * self.config.N_DECKS for card_id in range(0, 13)
+        }
+        self.current_hilo_count = (0, 0.0)  # Running count, True Count
 
     def deck_needs_reset(self) -> bool:
         """Check if we reached deck penetration"""
@@ -322,7 +329,7 @@ class BJSimulation:
         """Simulate a blackjack round"""
         if self.deck_needs_reset():
             # Reached penetration, reset the deck
-            self.reset_deck()
+            self.reset_game()
             self.current_round_id = 0
 
         # Play the round
@@ -351,5 +358,76 @@ class BJSimulation:
             self.current_round_id += 1
 
 
+def round_stats_to_csv(stats: list[BJSimulation.RoundSeatStatistics]) -> None:
+
+    # Independent variables
+    headers = [
+        "RoundID",
+        "SeatIndex",
+        "IsDealer",
+        "PrevCardsLeft",
+        "PrevCardsDrawed",
+        "PrevDeckPen",
+        "PrevRunningCount",
+        "PrevTrueCount",
+    ]
+
+    # Add rank headers using card mapping
+    headers.extend(
+        [
+            {
+                0: "PrevDensityA",
+                1: "PrevDensity2",
+                2: "PrevDensity3",
+                3: "PrevDensity4",
+                4: "PrevDensity5",
+                5: "PrevDensity6",
+                6: "PrevDensity7",
+                7: "PrevDensity8",
+                8: "PrevDensity9",
+                9: "PrevDensity10",
+                10: "PrevDensityJ",
+                11: "PrevDensityQ",
+                12: "PrevDensityK",
+            }[card_id]
+            for card_id in range(0, 13)
+        ]
+    )
+
+    # Dependent variables
+    headers.append("Outcome")
+
+    # Create dataframe
+    data = []
+    for stat in stats:
+        # Independent variables
+        row = [
+            stat.round_id,
+            stat.seat_index,
+            stat.is_dealer,
+            stat.prev_cards_left,
+            stat.prev_cards_drawed,
+            stat.prev_deck_penetration,
+            stat.prev_hilo_count[0],
+            stat.prev_hilo_count[1],
+        ]
+        # Include rank densities from A, 2 ... to K
+        row.extend([stat.prev_rank_densities[i] for i in range(0, 13)])
+
+        # Dependent variables
+        row.append(stat.outcome_win)
+        data.append(row)
+
+    df = DataFrame(data, columns=headers)
+
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"bjsim_{timestamp_str}.csv"
+    df.to_csv(filename, index=False)
+
+
 if __name__ == "__main__":
-    BJSimulation().start()
+    config = BJSimulation.Configuration(SIMULATION_ROUNDS=25, SHUFFLE_SEED=41)
+
+    sim = BJSimulation(config=config)
+    sim.start()
+    round_stats_to_csv(sim.round_stats)
