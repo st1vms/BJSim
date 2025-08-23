@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from numpy.random import default_rng
 from pandas import read_csv
 
@@ -15,18 +15,18 @@ def basic_strategy(player_hand: list[int], dealer_card: int, is_pair: bool) -> s
 
     if dealer_card == 0:
         dealer_index = 9  # Pair of Aces action cell y
-    elif dealer_card > 9:
+    elif dealer_card >= 9:
         dealer_index = 8  # Pair of high cards action cell y
     else:
-        dealer_index = dealer_card - 2
+        dealer_index = dealer_card - 1
 
     if is_pair:
         if player_hand[0] == 0:
             player_index = 36  # Pair of Aces action cell x
-        elif player_hand[0] > 9:
+        elif player_hand[0] >= 9:
             player_index = 35  # Pair of high cards action cell x
         else:
-            player_index = player_hand[0] + 25  # Pair region offset
+            player_index = player_hand[0] + 26  # Pair region offset
     else:
         score, is_soft = hand_score(player_hand)
         if is_soft:
@@ -68,7 +68,7 @@ class BJSimulation:
 
     @dataclass(frozen=True)
     class Configuration:
-        SIMULATION_ROUNDS: int = 1
+        SIMULATION_ROUNDS: int = 10
         N_DECKS: int = 8
         DECK_PEN: float = 0.5
         SHUFFLE_SEED: int = 42
@@ -78,10 +78,12 @@ class BJSimulation:
         round_id: int = -1
         seat_index: int = -1
         is_dealer: int = 0
+        prev_cards_drawed: int = 0
         prev_cards_left: int = 0
+        prev_deck_penetration: float = 0.0
         prev_hilo_count: tuple[int, float] = (0, 0.0)
         # Count of the remaining cards by rank
-        prev_rank_densities: dict[str, int] = {rank_id: 0 for rank_id in range(0, 13)}
+        prev_rank_densities: dict[str, int] = field(default_factory=dict)
         outcome_win: int = 0
 
     class Player:
@@ -89,7 +91,7 @@ class BJSimulation:
             self.seat_index = seat_index
             self.hands = []
 
-    def __init__(self, config: Configuration):
+    def __init__(self, config: Configuration = Configuration()):
         self.config = config
 
         self.round_stats: list[BJSimulation.RoundSeatStatistics] = []
@@ -107,7 +109,9 @@ class BJSimulation:
         # seat 7 is the dealer, seat 0 to 6 are players from right to left.
         self.players = [BJSimulation.Player(seat_index) for seat_index in range(0, 8)]
 
+        self.prev_cards_drawed = 0
         self.prev_cards_left = len(self.deck)
+        self.prev_deck_penetration = 0.0
         self.prev_rank_densities = {
             card_id: 4 * self.config.N_DECKS for card_id in range(0, 13)
         }
@@ -122,7 +126,6 @@ class BJSimulation:
         """Calculate and register this round stats"""
 
         dealer_score, is_soft = hand_score(self.players[-1].hands[0])
-        is_win = lambda hand: hand_score(hand)[0] > dealer_score
 
         # Player seats stats
         for seat_index in range(0, 7):
@@ -130,18 +133,33 @@ class BJSimulation:
                 self.current_round_id,
                 seat_index,  # seat index
                 0,  # It's not the dealer
-                self.prev_cards_left,
-                self.prev_hilo_count,
-                self.prev_rank_densities,
+                self.prev_cards_drawed,  # Cards drawed before round
+                self.prev_cards_left,  # Cards left before round
+                self.prev_deck_penetration,  # Deck penetration before round
+                self.prev_hilo_count,  # Hi Log count before round
+                self.prev_rank_densities,  # Rank densities before round
             )
 
             # Calculate winning outcome for the seat
-            player_hands = self.players[seat_index]
+            player_hands = self.players[seat_index].hands
             if len(player_hands) > 1:
-                # Deal with split
-                stats.outcome_win = int(any([is_win(hand) for hand in player_hands]))
+                # Split is won with at least a win+push
+                hand_scores = [hand_score(hand)[0] for hand in player_hands]
+                stats.outcome_win = int(
+                    all(
+                        [
+                            self.player_wins(score, dealer_score)
+                            or self.player_pushes(score, dealer_score)
+                            for score in hand_scores
+                        ]
+                    )
+                )
             else:
-                stats.outcome_win = int(is_win(player_hands[0]))
+                # Player wins if it beats the dealer's hand
+                # Push = Loss
+                stats.outcome_win = int(
+                    self.player_wins(hand_score(player_hands[0])[0], dealer_score)
+                )
 
             self.round_stats.append(stats)
 
@@ -151,15 +169,22 @@ class BJSimulation:
                 self.current_round_id,
                 seat_index,  # seat index
                 1,  # It's the dealer
-                self.prev_cards_left,
-                self.prev_hilo_count,
-                self.prev_rank_densities,
+                self.prev_cards_drawed,  # Cards drawed before round
+                self.prev_cards_left,  # Cards left before round
+                self.prev_deck_penetration,  # Deck penetration before round
+                self.prev_hilo_count,  # Hi Log count before round
+                self.prev_rank_densities,  # Rank densities before round
                 int(dealer_score <= 21),  # Dealers wins if it doesn't bust
             )
         )
 
         # Update previous-round stats
+        self.prev_cards_drawed = (self.config.N_DECKS * 52) - len(self.deck)
         self.prev_cards_left = len(self.deck)
+        self.prev_deck_penetration = round(1 - self.prev_cards_left / (
+            self.config.N_DECKS * 52
+        ), 2)
+
         self.prev_hilo_count = (self.current_hilo_count[0], self.current_hilo_count[1])
         self.prev_rank_densities = {
             k: v for k, v in self.current_rank_densities.items()
@@ -186,6 +211,12 @@ class BJSimulation:
     def update_rank_densities(self, card: int) -> None:
         """Updates the count of remaining cards for each rank"""
         self.current_rank_densities[card] -= 1
+
+    def player_wins(self, player_score: int, dealer_score: int) -> int:
+        return player_score <= 21 and (dealer_score > 21 or player_score > dealer_score)
+
+    def player_pushes(self, player_score: int, dealer_score: int) -> int:
+        return player_score <= 21 and dealer_score == player_score
 
     def draw_card(self) -> int:
         """Draw a card from the deck"""
@@ -243,15 +274,13 @@ class BJSimulation:
         player_score, is_soft = hand_score(hand)
 
         # Dealer's visible card
-        dealer_card = self.players[-1].hands[0][1]
+        dealer_card = self.players[-1].hands[0][0]
 
         action = None
-        while player_score <= 21 and action != "S":
+        while player_score < 21 and action != "S":
 
-            is_pair = False
-            if not is_split:
-                # If we're not in a split, check if this is a pair
-                is_pair = len(hand) == 2 and hand[0] == hand[1]
+            # If we're not in a split, check if this is a pair
+            is_pair = not is_split and len(hand) == 2 and hand[0] == hand[1]
 
             # Run basic strategy to choose which action the player performs
             action = basic_strategy(hand, dealer_card, is_pair=is_pair)
@@ -300,7 +329,8 @@ class BJSimulation:
         self.deal_initial_cards()
 
         # Check if dealer wins with blackjack
-        if self.players[-1].hands[0][1] == 0 and self.players[-1].hands[0][0] > 9:
+        if self.players[-1].hands[0][0] == 0 and self.players[-1].hands[0][1] > 9:
+            # Don't consider insurance
             return
 
         for seat_index in range(0, 7):
