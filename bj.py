@@ -155,7 +155,7 @@ class BJSimulation:
         self.round_stats.append(
             BJSimulation.RoundSeatStatistics(
                 self.current_round_id,
-                seat_index,  # seat index
+                7,  # seat index
                 1,  # It's the dealer
                 self.prev_cards_drawed,  # Cards drawed before round
                 self.prev_cards_left,  # Cards left before round
