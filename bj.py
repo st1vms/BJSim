@@ -345,13 +345,14 @@ class BJSimulation:
 
         self.dealer_turn()
 
-    def start(self) -> None:
+    def start(self, silent:bool = False) -> None:
         """Run the simulation on the total amount of rounds configured,
         calculating stats for each round"""
 
         # Simulate N rounds
         for sim_round in range(0, self.config.SIMULATION_ROUNDS):
-            print(f"Round {sim_round+1}/{self.config.SIMULATION_ROUNDS}")
+            if not silent:
+                print(f"Round {sim_round+1}/{self.config.SIMULATION_ROUNDS}")
             self.simulate_round()
             self.calculate_round_stats()
 
