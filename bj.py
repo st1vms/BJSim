@@ -358,74 +358,75 @@ class BJSimulation:
             self.current_round_id += 1
 
 
-def round_stats_to_csv(stats: list[BJSimulation.RoundSeatStatistics]) -> None:
+    def round_stats_to_csv(self, output_csv:str = None) None:
 
-    # Independent variables
-    headers = [
-        "RoundID",
-        "SeatIndex",
-        "IsDealer",
-        "PrevCardsLeft",
-        "PrevCardsDrawed",
-        "PrevDeckPen",
-        "PrevRunningCount",
-        "PrevTrueCount",
-    ]
-
-    # Add rank headers using card mapping
-    headers.extend(
-        [
-            {
-                0: "PrevDensityA",
-                1: "PrevDensity2",
-                2: "PrevDensity3",
-                3: "PrevDensity4",
-                4: "PrevDensity5",
-                5: "PrevDensity6",
-                6: "PrevDensity7",
-                7: "PrevDensity8",
-                8: "PrevDensity9",
-                9: "PrevDensity10",
-                10: "PrevDensityJ",
-                11: "PrevDensityQ",
-                12: "PrevDensityK",
-            }[card_id]
-            for card_id in range(0, 13)
-        ]
-    )
-
-    # Dependent variables
-    headers.append("Outcome")
-
-    # Create dataframe
-    data = []
-    for stat in stats:
         # Independent variables
-        row = [
-            stat.round_id,
-            stat.seat_index,
-            stat.is_dealer,
-            stat.prev_cards_left,
-            stat.prev_cards_drawed,
-            stat.prev_deck_penetration,
-            stat.prev_hilo_count[0],
-            stat.prev_hilo_count[1],
+        headers = [
+            "RoundID",
+            "SeatIndex",
+            "IsDealer",
+            "PrevCardsLeft",
+            "PrevCardsDrawed",
+            "PrevDeckPen",
+            "PrevRunningCount",
+            "PrevTrueCount",
         ]
-        # Include rank densities from A, 2 ... to K
-        row.extend([stat.prev_rank_densities[i] for i in range(0, 13)])
+
+        # Add rank headers using card mapping
+        headers.extend(
+            [
+                {
+                    0: "PrevDensityA",
+                    1: "PrevDensity2",
+                    2: "PrevDensity3",
+                    3: "PrevDensity4",
+                    4: "PrevDensity5",
+                    5: "PrevDensity6",
+                    6: "PrevDensity7",
+                    7: "PrevDensity8",
+                    8: "PrevDensity9",
+                    9: "PrevDensity10",
+                    10: "PrevDensityJ",
+                    11: "PrevDensityQ",
+                    12: "PrevDensityK",
+                }[card_id]
+                for card_id in range(0, 13)
+            ]
+        )
 
         # Dependent variables
-        row.append(stat.outcome_win)
-        data.append(row)
+        headers.append("Outcome")
 
-    df = DataFrame(data, columns=headers)
+        # Create dataframe
+        data = []
+        for stat in self.round_stats:
+            # Independent variables
+            row = [
+                stat.round_id,
+                stat.seat_index,
+                stat.is_dealer,
+                stat.prev_cards_left,
+                stat.prev_cards_drawed,
+                stat.prev_deck_penetration,
+                stat.prev_hilo_count[0],
+                stat.prev_hilo_count[1],
+            ]
+            # Include rank densities from A, 2 ... to K
+            row.extend([stat.prev_rank_densities[i] for i in range(0, 13)])
 
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"bjsim_{timestamp_str}.csv"
-    df.to_csv(filename, index=False)
+            # Dependent variables
+            row.append(stat.outcome_win)
+            data.append(row)
+
+        df = DataFrame(data, columns=headers)
+        
+        if output_csv is None:
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_csv = f"bjsim_{timestamp_str}.csv"
+        df.to_csv(output_csv, index=False)
 
 
 if __name__ == "__main__":
     sim = BJSimulation()
     sim.start()
-    round_stats_to_csv(sim.round_stats)
+    sim.round_stats_to_csv()
