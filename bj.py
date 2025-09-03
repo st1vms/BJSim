@@ -359,7 +359,7 @@ class BJSimulation:
             self.current_round_id += 1
 
 
-    def round_stats_to_csv(self, output_csv:str = None) None:
+    def round_stats_to_csv(self, output_csv:str = None):
 
         # Independent variables
         headers = [
